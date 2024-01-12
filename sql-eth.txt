@@ -1,0 +1,106 @@
+Active address growth of ethereum since 2019
+
+SELECT first_tx AS date, COUNT(*) AS no_of_addresses
+    FROM (
+        SELECT from_address AS address, MIN(DATE(block_timestamp)) AS first_tx
+        FROM `bigquery-public-data.crypto_ethereum.transactions`
+        WHERE value > 0 AND block_timestamp < '2019-01-01 00:00:00'
+        GROUP BY address
+        ORDER BY first_tx
+    )
+    GROUP BY first_tx
+    ORDER BY date desc
+
+
+Average Transaction Cost since 2019
+
+SELECT SUM(value/POWER(10,18)) AS ether_value,DATE(block_timestamp) as date, AVG(gas_price*(receipt_gas_used/POWER(10,18))) as avg_tx_fee
+FROM `bigquery-public-data.crypto_ethereum.transactions`
+WHERE DATE(block_timestamp) BETWEEN '2018-01-01' AND '2022-03-27'
+GROUP BY date
+ORDER BY date;
+
+
+Average Value of Ether Transferred per day
+
+SELECT 
+    DATE(block_timestamp) AS date, (SUM(value) / power(10,18)) AS total_value 
+FROM
+    `bigquery-public-data.crypto_ethereum.transactions` AS transactions
+WHERE
+    block_timestamp < '2022-04-01 00:00:00'
+GROUP BY date
+ORDER BY date
+
+
+Number of Successful or Unsuccessful transactions in Ethereum
+
+select 
+    b.block_timestamp,
+    transaction_hash, 
+    status
+from 
+    (
+        select
+            block_timestamp, 
+            `hash`
+        from 
+            bigquery-public-data.crypto_ethereum.transactions 
+        where true
+            and date(block_timestamp) > '2021-01-01'
+    ) a
+    join 
+    (
+        select
+            block_timestamp,
+            transaction_hash,
+            status 
+        from
+            bigquery-public-data.crypto_ethereum.traces 
+        where true
+            and date(block_timestamp) > '2021-01-01'
+            and trace_address is null
+            and traces.status = 0
+    ) b
+on a.hash = b.transaction_hash
+
+
+
+Top 10 ether value wallets 
+
+    SELECT to_address AS address, value AS value
+    FROM `bigquery-public-data.crypto_ethereum.traces`
+    WHERE to_address IS NOT null
+    AND block_timestamp < '2021-09-01 00:00:00'
+    AND status=1
+    AND (call_type NOT IN ('delegatecall', 'callcode', 'staticcall') OR call_type IS null)
+    
+    UNION ALL
+    
+    SELECT from_address AS address, -value AS value
+    FROM `bigquery-public-data.crypto_ethereum.traces`
+    WHERE from_address IS NOT null
+    AND block_timestamp < '2021-09-01 00:00:00'
+    AND status=1
+    AND (call_type NOT IN ('delegatecall', 'callcode', 'staticcall') OR call_type IS null)
+    
+    UNION ALL
+    
+    SELECT miner as address, SUM(CAST(receipt_gas_used AS NUMERIC) * CAST(gas_price AS NUMERIC)) AS value
+    FROM `bigquery-public-data.crypto_ethereum.transactions` AS transactions
+    JOIN `bigquery-public-data.crypto_ethereum.blocks` AS blocks
+    ON blocks.number = transactions.block_number
+    WHERE block_timestamp < '2021-09-01 00:00:00'
+    GROUP BY blocks.miner
+    
+    UNION ALL
+    
+    SELECT from_address as address, -(CAST(receipt_gas_used AS NUMERIC) * CAST(gas_price AS NUMERIC)) AS value
+    FROM  `bigquery-public-data.crypto_ethereum.transactions`
+    WHERE block_timestamp < '2021-09-01 00:00:00'
+)
+SELECT address, FLOOR(SUM(value) / power(10,18)) AS balance
+FROM value_table
+GROUP BY address
+ORDER BY balance DESC
+LIMIT 10
